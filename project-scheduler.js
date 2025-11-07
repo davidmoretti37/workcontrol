@@ -219,6 +219,13 @@ const ProjectScheduler = () => {
       createdAt: new Date()
     };
     setProjects([...projects, newProject]);
+
+    // Auto-activate projects created from documents
+    if (projectData.fromDocument) {
+      setActiveProjectIds([...activeProjectIds, newProject.id]);
+      alert(`✓ Project "${newProject.name}" created and activated!\n\n${newProject.tasks.length} tasks scheduled across your week.\n\nCheck "This Week's Grind" to see your daily schedule.`);
+    }
+
     setShowProjectForm(false);
   };
 
@@ -803,6 +810,7 @@ const ProjectForm = ({ onSave, onCancel, parseDocumentContent }) => {
   const [tasks, setTasks] = useState([]);
   const [taskName, setTaskName] = useState('');
   const [taskHours, setTaskHours] = useState('');
+  const [fromDocument, setFromDocument] = useState(false);
   const fileInputRef = React.createRef();
 
   const handleDocumentUpload = (file) => {
@@ -822,6 +830,7 @@ const ProjectForm = ({ onSave, onCancel, parseDocumentContent }) => {
       }));
 
       setTasks(projectTasks);
+      setFromDocument(true);
       if (!projectName) {
         setProjectName(file.name.replace(/\.[^/.]+$/, "")); // Remove file extension
       }
@@ -866,7 +875,8 @@ const ProjectForm = ({ onSave, onCancel, parseDocumentContent }) => {
       onSave({
         name: projectName.trim(),
         color: projectColor,
-        tasks
+        tasks,
+        fromDocument
       });
     }
   };
