@@ -1149,4 +1149,4 @@ const EventForm = ({ selectedDate, onSave, onCancel, isGoogleConnected }) => {
   );
 };
 
-export default ProjectScheduler;
+// ProjectScheduler is now available globally for index.html to use
