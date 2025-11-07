@@ -11,6 +11,16 @@ const ProjectScheduler = () => {
     return saved ? JSON.parse(saved) : [];
   });
   const [showProjectForm, setShowProjectForm] = useState(false);
+  const [viewMode, setViewMode] = useState('schedule'); // 'schedule' or 'calendar'
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [calendarEvents, setCalendarEvents] = useState(() => {
+    const saved = localStorage.getItem('workcontrol-calendar-events');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [googleCalendarEvents, setGoogleCalendarEvents] = useState([]);
+  const [isGoogleConnected, setIsGoogleConnected] = useState(false);
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(null);
   const [currentWeekStart, setCurrentWeekStart] = useState(() => {
     const today = new Date();
     const day = today.getDay();
@@ -30,6 +40,11 @@ const ProjectScheduler = () => {
   useEffect(() => {
     localStorage.setItem('workcontrol-active-projects', JSON.stringify(activeProjectIds));
   }, [activeProjectIds]);
+
+  // Save calendar events to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('workcontrol-calendar-events', JSON.stringify(calendarEvents));
+  }, [calendarEvents]);
 
   const weekDays = useMemo(() => {
     const days = [];
@@ -161,20 +176,144 @@ const ProjectScheduler = () => {
     setCurrentWeekStart(newDate);
   };
 
+  const navigateMonth = (direction) => {
+    const newDate = new Date(currentMonth);
+    newDate.setMonth(newDate.getMonth() + direction);
+    setCurrentMonth(newDate);
+  };
+
+  const addCalendarEvent = (eventData) => {
+    const newEvent = {
+      ...eventData,
+      id: Date.now(),
+      createdAt: new Date()
+    };
+    setCalendarEvents([...calendarEvents, newEvent]);
+    setShowEventForm(false);
+    setSelectedDate(null);
+  };
+
+  const deleteCalendarEvent = (eventId) => {
+    setCalendarEvents(calendarEvents.filter(e => e.id !== eventId));
+  };
+
+  const connectGoogleCalendar = async () => {
+    // Google Calendar OAuth flow
+    try {
+      const CLIENT_ID = localStorage.getItem('google-calendar-client-id');
+      const API_KEY = localStorage.getItem('google-calendar-api-key');
+
+      if (!CLIENT_ID || !API_KEY) {
+        alert('Please set up Google Calendar credentials first. Check the Settings button.');
+        return;
+      }
+
+      // Initialize Google API client
+      window.gapi.load('client:auth2', async () => {
+        await window.gapi.client.init({
+          apiKey: API_KEY,
+          clientId: CLIENT_ID,
+          discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest'],
+          scope: 'https://www.googleapis.com/auth/calendar'
+        });
+
+        const authInstance = window.gapi.auth2.getAuthInstance();
+        await authInstance.signIn();
+        setIsGoogleConnected(true);
+        loadGoogleCalendarEvents();
+      });
+    } catch (error) {
+      console.error('Error connecting to Google Calendar:', error);
+      alert('Failed to connect to Google Calendar. Please check your credentials.');
+    }
+  };
+
+  const loadGoogleCalendarEvents = async () => {
+    try {
+      const response = await window.gapi.client.calendar.events.list({
+        calendarId: 'primary',
+        timeMin: new Date().toISOString(),
+        showDeleted: false,
+        singleEvents: true,
+        maxResults: 100,
+        orderBy: 'startTime'
+      });
+      setGoogleCalendarEvents(response.result.items || []);
+    } catch (error) {
+      console.error('Error loading Google Calendar events:', error);
+    }
+  };
+
+  const addToGoogleCalendar = async (eventData) => {
+    try {
+      const event = {
+        summary: eventData.title,
+        description: eventData.description || '',
+        start: {
+          dateTime: new Date(eventData.date).toISOString(),
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        },
+        end: {
+          dateTime: new Date(new Date(eventData.date).getTime() + 60 * 60 * 1000).toISOString(),
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        }
+      };
+
+      await window.gapi.client.calendar.events.insert({
+        calendarId: 'primary',
+        resource: event
+      });
+
+      loadGoogleCalendarEvents();
+      alert('Event added to Google Calendar!');
+    } catch (error) {
+      console.error('Error adding to Google Calendar:', error);
+      alert('Failed to add event to Google Calendar');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 p-8">
       <div className="max-w-7xl mx-auto">
         {/* Hero Header with Stats */}
         <div className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-3 rounded-2xl shadow-lg">
-              <Sparkles className="text-white" size={32} />
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-3 rounded-2xl shadow-lg">
+                <Sparkles className="text-white" size={32} />
+              </div>
+              <div>
+                <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                  Project Scheduler
+                </h1>
+                <p className="text-gray-600 mt-1">Build your empire, one 10-hour day at a time 🚀</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                Project Scheduler
-              </h1>
-              <p className="text-gray-600 mt-1">Build your empire, one 10-hour day at a time 🚀</p>
+
+            {/* View Toggle */}
+            <div className="flex gap-2 bg-white/80 backdrop-blur-sm rounded-2xl p-2 shadow-lg border border-white/20">
+              <button
+                onClick={() => setViewMode('schedule')}
+                className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${
+                  viewMode === 'schedule'
+                    ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <Clock className="inline mr-2" size={18} />
+                Schedule
+              </button>
+              <button
+                onClick={() => setViewMode('calendar')}
+                className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${
+                  viewMode === 'calendar'
+                    ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <Calendar className="inline mr-2" size={18} />
+                Calendar
+              </button>
             </div>
           </div>
 
@@ -230,9 +369,11 @@ const ProjectScheduler = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Project List */}
-          <div className="lg:col-span-1">
+        {/* Main Content Area - Schedule or Calendar View */}
+        {viewMode === 'schedule' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left: Project List */}
+            <div className="lg:col-span-1">
             <div className="bg-white/90 backdrop-blur-lg rounded-3xl shadow-2xl p-6 border border-white/20">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-gray-800">Your Projects</h2>
@@ -484,6 +625,21 @@ const ProjectScheduler = () => {
             </div>
           </div>
         </div>
+        ) : (
+          <CalendarView
+            currentMonth={currentMonth}
+            navigateMonth={navigateMonth}
+            calendarEvents={calendarEvents}
+            googleCalendarEvents={googleCalendarEvents}
+            isGoogleConnected={isGoogleConnected}
+            onDayClick={(date) => {
+              setSelectedDate(date);
+              setShowEventForm(true);
+            }}
+            onDeleteEvent={deleteCalendarEvent}
+            onConnectGoogle={connectGoogleCalendar}
+          />
+        )}
       </div>
 
       {/* Project Form Modal */}
@@ -491,6 +647,24 @@ const ProjectScheduler = () => {
         <ProjectForm
           onSave={addProject}
           onCancel={() => setShowProjectForm(false)}
+        />
+      )}
+
+      {/* Event Form Modal */}
+      {showEventForm && (
+        <EventForm
+          selectedDate={selectedDate}
+          onSave={(eventData) => {
+            addCalendarEvent(eventData);
+            if (isGoogleConnected) {
+              addToGoogleCalendar(eventData);
+            }
+          }}
+          onCancel={() => {
+            setShowEventForm(false);
+            setSelectedDate(null);
+          }}
+          isGoogleConnected={isGoogleConnected}
         />
       )}
     </div>
@@ -698,6 +872,271 @@ const ProjectForm = ({ onSave, onCancel }) => {
             <button
               onClick={onCancel}
               className="px-8 py-4 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const CalendarView = ({
+  currentMonth,
+  navigateMonth,
+  calendarEvents,
+  googleCalendarEvents,
+  isGoogleConnected,
+  onDayClick,
+  onDeleteEvent,
+  onConnectGoogle
+}) => {
+  const getDaysInMonth = () => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = firstDay.getDay();
+
+    const days = [];
+    // Add empty cells for days before the month starts
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push(null);
+    }
+    // Add all days in the month
+    for (let day = 1; day <= daysInMonth; day++) {
+      days.push(new Date(year, month, day));
+    }
+    return days;
+  };
+
+  const getEventsForDate = (date) => {
+    if (!date) return [];
+    const dateStr = date.toDateString();
+    const localEvents = calendarEvents.filter(e => new Date(e.date).toDateString() === dateStr);
+    const gEvents = googleCalendarEvents.filter(e => {
+      const eventDate = new Date(e.start?.dateTime || e.start?.date);
+      return eventDate.toDateString() === dateStr;
+    }).map(e => ({
+      ...e,
+      title: e.summary,
+      isGoogleEvent: true
+    }));
+    return [...localEvents, ...gEvents];
+  };
+
+  const days = getDaysInMonth();
+  const today = new Date();
+
+  return (
+    <div className="bg-white/90 backdrop-blur-lg rounded-3xl shadow-2xl p-6 border border-white/20">
+      {/* Calendar Header */}
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">
+          {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+        </h2>
+        <div className="flex items-center gap-3">
+          {!isGoogleConnected && (
+            <button
+              onClick={onConnectGoogle}
+              className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:shadow-lg transition-all font-semibold"
+            >
+              Connect Google Calendar
+            </button>
+          )}
+          {isGoogleConnected && (
+            <span className="px-4 py-2 bg-green-100 text-green-700 rounded-xl font-semibold text-sm">
+              ✓ Google Connected
+            </span>
+          )}
+          <button
+            onClick={() => navigateMonth(-1)}
+            className="px-4 py-2 bg-white border-2 border-gray-200 rounded-xl hover:border-indigo-400 hover:shadow-lg transition-all"
+          >
+            ←
+          </button>
+          <button
+            onClick={() => navigateMonth(1)}
+            className="px-4 py-2 bg-white border-2 border-gray-200 rounded-xl hover:border-indigo-400 hover:shadow-lg transition-all"
+          >
+            →
+          </button>
+        </div>
+      </div>
+
+      {/* Calendar Grid */}
+      <div className="grid grid-cols-7 gap-2">
+        {/* Day headers */}
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+          <div key={day} className="text-center font-bold text-gray-600 py-2">
+            {day}
+          </div>
+        ))}
+
+        {/* Calendar days */}
+        {days.map((date, idx) => {
+          const isToday = date && date.toDateString() === today.toDateString();
+          const events = date ? getEventsForDate(date) : [];
+
+          return (
+            <div
+              key={idx}
+              onClick={() => date && onDayClick(date)}
+              className={`min-h-32 p-2 rounded-xl border-2 transition-all cursor-pointer ${
+                !date
+                  ? 'bg-gray-50 border-gray-100'
+                  : isToday
+                  ? 'bg-gradient-to-br from-indigo-100 to-purple-100 border-indigo-400 shadow-lg'
+                  : 'bg-white border-gray-200 hover:border-indigo-300 hover:shadow-md'
+              }`}
+            >
+              {date && (
+                <>
+                  <div className={`text-sm font-bold mb-2 ${isToday ? 'text-indigo-700' : 'text-gray-700'}`}>
+                    {date.getDate()}
+                    {isToday && <span className="ml-1 text-xs">●</span>}
+                  </div>
+                  <div className="space-y-1">
+                    {events.slice(0, 3).map((event, eventIdx) => (
+                      <div
+                        key={eventIdx}
+                        className={`text-xs p-1 rounded truncate ${
+                          event.isGoogleEvent
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-purple-100 text-purple-700'
+                        }`}
+                        title={event.title}
+                      >
+                        {event.title}
+                      </div>
+                    ))}
+                    {events.length > 3 && (
+                      <div className="text-xs text-gray-500">
+                        +{events.length - 3} more
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const EventForm = ({ selectedDate, onSave, onCancel, isGoogleConnected }) => {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [time, setTime] = useState('09:00');
+
+  const handleSave = () => {
+    if (title.trim()) {
+      const eventDate = new Date(selectedDate);
+      const [hours, minutes] = time.split(':');
+      eventDate.setHours(parseInt(hours), parseInt(minutes));
+
+      onSave({
+        title: title.trim(),
+        description: description.trim(),
+        date: eventDate.toISOString(),
+        time
+      });
+      setTitle('');
+      setDescription('');
+      setTime('09:00');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+      <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full animate-slideUp">
+        <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 rounded-t-3xl">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-2xl font-bold text-white">Add Event</h2>
+            <button
+              onClick={onCancel}
+              className="text-white/80 hover:text-white hover:rotate-90 transition-all duration-300"
+            >
+              <X size={24} />
+            </button>
+          </div>
+          <p className="text-white/80">
+            {selectedDate && new Date(selectedDate).toLocaleDateString('en-US', {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+              year: 'numeric'
+            })}
+          </p>
+        </div>
+
+        <div className="p-6">
+          <div className="mb-4">
+            <label className="block text-sm font-bold text-gray-700 mb-2">
+              Event Title
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g., Team Meeting"
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              autoFocus
+            />
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-sm font-bold text-gray-700 mb-2">
+              Time
+            </label>
+            <input
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+
+          <div className="mb-6">
+            <label className="block text-sm font-bold text-gray-700 mb-2">
+              Description (Optional)
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Add notes or details..."
+              rows={3}
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+            />
+          </div>
+
+          {isGoogleConnected && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+              <p className="text-sm text-blue-700">
+                ✓ This event will also be added to your Google Calendar
+              </p>
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <button
+              onClick={handleSave}
+              disabled={!title.trim()}
+              className={`flex-1 py-3 rounded-xl font-bold transition-all duration-300 ${
+                !title.trim()
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white hover:shadow-lg hover:scale-105'
+              }`}
+            >
+              Add Event
+            </button>
+            <button
+              onClick={onCancel}
+              className="px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all"
             >
               Cancel
             </button>
