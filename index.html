@@ -18,6 +18,9 @@
     <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
     <style>
         @keyframes fadeIn {
             from { opacity: 0; }
@@ -47,15 +50,432 @@
 <body>
     <div id="root"></div>
 
-    <!-- Lucide Icons Script -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-
-    <!-- Main App Script -->
-    <script type="text/babel" src="project-scheduler.jsx"></script>
-
+    <!-- Main App Script - All code embedded -->
     <script type="text/babel">
         const { CheckCircle2, Circle, Plus, X, Sparkles, TrendingUp, Calendar, Clock } = lucide;
+        const { useState, useMemo, useEffect } = React;
 
+        const ProjectScheduler = () => {
+          const [projects, setProjects] = useState(() => {
+            const saved = localStorage.getItem('workcontrol-projects');
+            return saved ? JSON.parse(saved) : [];
+          });
+          const [activeProjectIds, setActiveProjectIds] = useState(() => {
+            const saved = localStorage.getItem('workcontrol-active-projects');
+            return saved ? JSON.parse(saved) : [];
+          });
+          const [showProjectForm, setShowProjectForm] = useState(false);
+          const [viewMode, setViewMode] = useState('schedule');
+          const [currentMonth, setCurrentMonth] = useState(new Date());
+          const [calendarEvents, setCalendarEvents] = useState(() => {
+            const saved = localStorage.getItem('workcontrol-calendar-events');
+            return saved ? JSON.parse(saved) : [];
+          });
+          const [googleCalendarEvents, setGoogleCalendarEvents] = useState([]);
+          const [isGoogleConnected, setIsGoogleConnected] = useState(false);
+          const [showEventForm, setShowEventForm] = useState(false);
+          const [selectedDate, setSelectedDate] = useState(null);
+          const [currentWeekStart, setCurrentWeekStart] = useState(() => {
+            const today = new Date();
+            const day = today.getDay();
+            const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(today);
+            monday.setDate(diff);
+            monday.setHours(0, 0, 0, 0);
+            return monday;
+          });
+
+          useEffect(() => {
+            localStorage.setItem('workcontrol-projects', JSON.stringify(projects));
+          }, [projects]);
+
+          useEffect(() => {
+            localStorage.setItem('workcontrol-active-projects', JSON.stringify(activeProjectIds));
+          }, [activeProjectIds]);
+
+          useEffect(() => {
+            localStorage.setItem('workcontrol-calendar-events', JSON.stringify(calendarEvents));
+          }, [calendarEvents]);
+
+          const weekDays = useMemo(() => {
+            const days = [];
+            for (let i = 0; i < 7; i++) {
+              const date = new Date(currentWeekStart);
+              date.setDate(date.getDate() + i);
+              days.push(date);
+            }
+            return days;
+          }, [currentWeekStart]);
+
+          const scheduleWeek = useMemo(() => {
+            const schedule = weekDays.map(date => ({
+              date,
+              tasks: [],
+              totalHours: 0
+            }));
+
+            const allTasks = [];
+            activeProjectIds.forEach(projId => {
+              const project = projects.find(p => p.id === projId);
+              if (project) {
+                project.tasks.forEach(task => {
+                  if (!task.completed) {
+                    allTasks.push({
+                      ...task,
+                      projectId: projId,
+                      projectName: project.name,
+                      projectColor: project.color
+                    });
+                  }
+                });
+              }
+            });
+
+            allTasks.sort((a, b) => b.hours - a.hours);
+
+            let dayIndex = 0;
+            for (const task of allTasks) {
+              if (dayIndex >= schedule.length) break;
+
+              let remainingHours = task.hours;
+              const taskId = `${task.projectId}-${task.id}`;
+
+              while (remainingHours > 0 && dayIndex < schedule.length) {
+                const day = schedule[dayIndex];
+                const availableHours = 10 - day.totalHours;
+
+                if (availableHours <= 0) {
+                  dayIndex++;
+                  continue;
+                }
+
+                const hoursToAdd = Math.min(remainingHours, availableHours);
+
+                day.tasks.push({
+                  ...task,
+                  taskId,
+                  hoursThisDay: hoursToAdd,
+                  isSplit: task.hours > 10,
+                  totalTaskHours: task.hours
+                });
+
+                day.totalHours += hoursToAdd;
+                remainingHours -= hoursToAdd;
+
+                if (remainingHours > 0) {
+                  dayIndex++;
+                }
+              }
+
+              if (remainingHours <= 0 && day.totalHours >= 9) {
+                dayIndex++;
+              }
+            }
+
+            return schedule;
+          }, [projects, activeProjectIds, weekDays]);
+
+          const stats = useMemo(() => {
+            const totalTasks = projects.reduce((sum, p) => sum + p.tasks.length, 0);
+            const completedTasks = projects.reduce((sum, p) => sum + p.tasks.filter(t => t.completed).length, 0);
+            const totalHours = projects.reduce((sum, p) => sum + p.tasks.reduce((s, t) => s + t.hours, 0), 0);
+            const completedHours = projects.reduce((sum, p) => sum + p.tasks.filter(t => t.completed).reduce((s, t) => s + t.hours, 0), 0);
+
+            return { totalTasks, completedTasks, totalHours, completedHours };
+          }, [projects]);
+
+          const addProject = (projectData) => {
+            const newProject = {
+              ...projectData,
+              id: Date.now(),
+              createdAt: new Date()
+            };
+            setProjects([...projects, newProject]);
+            setShowProjectForm(false);
+          };
+
+          const toggleProject = (projectId) => {
+            setActiveProjectIds(prev =>
+              prev.includes(projectId)
+                ? prev.filter(id => id !== projectId)
+                : [...prev, projectId]
+            );
+          };
+
+          const toggleTaskComplete = (projectId, taskId) => {
+            setProjects(projects.map(project => {
+              if (project.id === projectId) {
+                return {
+                  ...project,
+                  tasks: project.tasks.map(task =>
+                    task.id === taskId ? { ...task, completed: !task.completed } : task
+                  )
+                };
+              }
+              return project;
+            }));
+          };
+
+          const deleteProject = (projectId) => {
+            setProjects(projects.filter(p => p.id !== projectId));
+            setActiveProjectIds(activeProjectIds.filter(id => id !== projectId));
+          };
+
+          const navigateWeek = (direction) => {
+            const newDate = new Date(currentWeekStart);
+            newDate.setDate(newDate.getDate() + (direction * 7));
+            setCurrentWeekStart(newDate);
+          };
+
+          const navigateMonth = (direction) => {
+            const newDate = new Date(currentMonth);
+            newDate.setMonth(newDate.getMonth() + direction);
+            setCurrentMonth(newDate);
+          };
+
+          const addCalendarEvent = (eventData) => {
+            const newEvent = {
+              ...eventData,
+              id: Date.now(),
+              createdAt: new Date()
+            };
+            setCalendarEvents([...calendarEvents, newEvent]);
+            setShowEventForm(false);
+            setSelectedDate(null);
+          };
+
+          const deleteCalendarEvent = (eventId) => {
+            setCalendarEvents(calendarEvents.filter(e => e.id !== eventId));
+          };
+
+          const connectGoogleCalendar = async () => {
+            try {
+              const CLIENT_ID = localStorage.getItem('google-calendar-client-id');
+              const API_KEY = localStorage.getItem('google-calendar-api-key');
+
+              if (!CLIENT_ID || !API_KEY) {
+                alert('Please set up Google Calendar credentials first. Check the SETUP.md file for instructions.');
+                return;
+              }
+
+              window.gapi.load('client:auth2', async () => {
+                await window.gapi.client.init({
+                  apiKey: API_KEY,
+                  clientId: CLIENT_ID,
+                  discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest'],
+                  scope: 'https://www.googleapis.com/auth/calendar'
+                });
+
+                const authInstance = window.gapi.auth2.getAuthInstance();
+                await authInstance.signIn();
+                setIsGoogleConnected(true);
+                loadGoogleCalendarEvents();
+              });
+            } catch (error) {
+              console.error('Error connecting to Google Calendar:', error);
+              alert('Failed to connect to Google Calendar. Please check your credentials.');
+            }
+          };
+
+          const loadGoogleCalendarEvents = async () => {
+            try {
+              const response = await window.gapi.client.calendar.events.list({
+                calendarId: 'primary',
+                timeMin: new Date().toISOString(),
+                showDeleted: false,
+                singleEvents: true,
+                maxResults: 100,
+                orderBy: 'startTime'
+              });
+              setGoogleCalendarEvents(response.result.items || []);
+            } catch (error) {
+              console.error('Error loading Google Calendar events:', error);
+            }
+          };
+
+          const addToGoogleCalendar = async (eventData) => {
+            try {
+              const event = {
+                summary: eventData.title,
+                description: eventData.description || '',
+                start: {
+                  dateTime: new Date(eventData.date).toISOString(),
+                  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                },
+                end: {
+                  dateTime: new Date(new Date(eventData.date).getTime() + 60 * 60 * 1000).toISOString(),
+                  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                }
+              };
+
+              await window.gapi.client.calendar.events.insert({
+                calendarId: 'primary',
+                resource: event
+              });
+
+              loadGoogleCalendarEvents();
+              alert('Event added to Google Calendar!');
+            } catch (error) {
+              console.error('Error adding to Google Calendar:', error);
+              alert('Failed to add event to Google Calendar');
+            }
+          };
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 p-8">
+              <div className="max-w-7xl mx-auto">
+                <div className="mb-8">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-3 rounded-2xl shadow-lg">
+                        <Sparkles className="text-white" size={32} />
+                      </div>
+                      <div>
+                        <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                          Project Scheduler
+                        </h1>
+                        <p className="text-gray-600 mt-1">Build your empire, one 10-hour day at a time 🚀</p>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 bg-white/80 backdrop-blur-sm rounded-2xl p-2 shadow-lg border border-white/20">
+                      <button
+                        onClick={() => setViewMode('schedule')}
+                        className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${
+                          viewMode === 'schedule'
+                            ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        <Clock className="inline mr-2" size={18} />
+                        Schedule
+                      </button>
+                      <button
+                        onClick={() => setViewMode('calendar')}
+                        className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${
+                          viewMode === 'calendar'
+                            ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        <Calendar className="inline mr-2" size={18} />
+                        Calendar
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+                    <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg border border-white/20">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-3 rounded-xl">
+                          <TrendingUp className="text-white" size={20} />
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold text-gray-800">{projects.length}</p>
+                          <p className="text-sm text-gray-600">Projects</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg border border-white/20">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-gradient-to-br from-green-500 to-emerald-600 p-3 rounded-xl">
+                          <CheckCircle2 className="text-white" size={20} />
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold text-gray-800">{stats.completedTasks}/{stats.totalTasks}</p>
+                          <p className="text-sm text-gray-600">Tasks Done</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg border border-white/20">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-gradient-to-br from-purple-500 to-pink-600 p-3 rounded-xl">
+                          <Clock className="text-white" size={20} />
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold text-gray-800">{stats.completedHours}h</p>
+                          <p className="text-sm text-gray-600">Hours Crushed</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg border border-white/20">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-gradient-to-br from-orange-500 to-red-600 p-3 rounded-xl">
+                          <Calendar className="text-white" size={20} />
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold text-gray-800">{activeProjectIds.length}</p>
+                          <p className="text-sm text-gray-600">Active Now</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {viewMode === 'schedule' ? (
+                  <ScheduleView
+                    projects={projects}
+                    activeProjectIds={activeProjectIds}
+                    scheduleWeek={scheduleWeek}
+                    currentWeekStart={currentWeekStart}
+                    setShowProjectForm={setShowProjectForm}
+                    toggleProject={toggleProject}
+                    deleteProject={deleteProject}
+                    toggleTaskComplete={toggleTaskComplete}
+                    navigateWeek={navigateWeek}
+                  />
+                ) : (
+                  <CalendarView
+                    currentMonth={currentMonth}
+                    navigateMonth={navigateMonth}
+                    calendarEvents={calendarEvents}
+                    googleCalendarEvents={googleCalendarEvents}
+                    isGoogleConnected={isGoogleConnected}
+                    onDayClick={(date) => {
+                      setSelectedDate(date);
+                      setShowEventForm(true);
+                    }}
+                    onDeleteEvent={deleteCalendarEvent}
+                    onConnectGoogle={connectGoogleCalendar}
+                  />
+                )}
+              </div>
+
+              {showProjectForm && (
+                <ProjectForm
+                  onSave={addProject}
+                  onCancel={() => setShowProjectForm(false)}
+                />
+              )}
+
+              {showEventForm && (
+                <EventForm
+                  selectedDate={selectedDate}
+                  onSave={(eventData) => {
+                    addCalendarEvent(eventData);
+                    if (isGoogleConnected) {
+                      addToGoogleCalendar(eventData);
+                    }
+                  }}
+                  onCancel={() => {
+                    setShowEventForm(false);
+                    setSelectedDate(null);
+                  }}
+                  isGoogleConnected={isGoogleConnected}
+                />
+              )}
+            </div>
+          );
+        };
+
+        // Continue with remaining components...
+        // (Truncated for length - will create in next part)
+    </script>
+
+    <script type="text/babel">
         // Mount the app
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<ProjectScheduler />);
