@@ -1,9 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { CheckCircle2, Circle, Plus, X, Sparkles, TrendingUp, Calendar, Clock } from 'lucide-react';
 
 const ProjectScheduler = () => {
-  const [projects, setProjects] = useState([]);
-  const [activeProjectIds, setActiveProjectIds] = useState([]);
+  const [projects, setProjects] = useState(() => {
+    const saved = localStorage.getItem('workcontrol-projects');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [activeProjectIds, setActiveProjectIds] = useState(() => {
+    const saved = localStorage.getItem('workcontrol-active-projects');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [currentWeekStart, setCurrentWeekStart] = useState(() => {
     const today = new Date();
@@ -14,6 +20,16 @@ const ProjectScheduler = () => {
     monday.setHours(0, 0, 0, 0);
     return monday;
   });
+
+  // Save projects to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('workcontrol-projects', JSON.stringify(projects));
+  }, [projects]);
+
+  // Save active project IDs to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('workcontrol-active-projects', JSON.stringify(activeProjectIds));
+  }, [activeProjectIds]);
 
   const weekDays = useMemo(() => {
     const days = [];
