@@ -226,7 +226,7 @@ const ProjectScheduler = () => {
         }
 
         const hoursToAdd = Math.min(remainingHours, availableHours);
-        
+
         day.tasks.push({
           ...task,
           taskId,
@@ -243,7 +243,7 @@ const ProjectScheduler = () => {
         }
       }
 
-      if (remainingHours <= 0 && day.totalHours >= 9) {
+      if (remainingHours <= 0 && dayIndex < schedule.length && schedule[dayIndex].totalHours >= 9) {
         dayIndex++;
       }
     }
