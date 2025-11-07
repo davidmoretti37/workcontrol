@@ -699,10 +699,10 @@ const ProjectScheduler = () => {
                           className={`w-full mt-3 py-3 px-4 rounded-xl font-semibold transition-all duration-300 ${
                             isActive
                               ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg hover:shadow-xl'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                              : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-600 hover:to-emerald-700 shadow-md hover:shadow-lg hover:scale-105'
                           }`}
                         >
-                          {isActive ? '✨ Working on it' : 'Start Working'}
+                          {isActive ? '✨ Working on it' : '▶️ Start Working'}
                         </button>
                       </div>
                     );
@@ -716,7 +716,14 @@ const ProjectScheduler = () => {
           <div className="lg:col-span-2">
             <div className="bg-white/90 backdrop-blur-lg rounded-3xl shadow-2xl p-6 border border-white/20">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-800">This Week's Grind</h2>
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">This Week's Grind</h2>
+                  {activeProjectIds.length > 0 && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      {activeProjectIds.length} active {activeProjectIds.length === 1 ? 'project' : 'projects'}
+                    </p>
+                  )}
+                </div>
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => navigateWeek(-1)}
@@ -742,7 +749,26 @@ const ProjectScheduler = () => {
                     <Calendar className="text-indigo-500" size={40} />
                   </div>
                   <p className="text-xl font-semibold text-gray-700 mb-2">Ready to work?</p>
-                  <p className="text-gray-500">Toggle a project to see your schedule magic ✨</p>
+                  <p className="text-gray-500 mb-4">Click "Start Working" on a project on the left to see your schedule ✨</p>
+                  {projects.length === 0 && (
+                    <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl max-w-md mx-auto">
+                      <p className="text-sm text-yellow-800">
+                        👈 First, create a project using the + button
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : scheduleWeek.every(day => day.tasks.length === 0) ? (
+                <div className="text-center py-20">
+                  <div className="bg-gradient-to-br from-green-100 to-emerald-100 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle2 className="text-green-500" size={40} />
+                  </div>
+                  <p className="text-xl font-semibold text-gray-700 mb-2">All Done! 🎉</p>
+                  <p className="text-gray-500">
+                    {projects.filter(p => activeProjectIds.includes(p.id)).every(p => p.tasks.every(t => t.completed))
+                      ? "All tasks completed! Time to add more or start a new project."
+                      : "No incomplete tasks scheduled for this week."}
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-4">
