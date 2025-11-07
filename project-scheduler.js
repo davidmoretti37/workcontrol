@@ -1,5 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { CheckCircle2, Circle, Plus, X, Sparkles, TrendingUp, Calendar, Clock } from 'lucide-react';
+// Get React hooks from global React object
+const { useState, useMemo, useEffect } = React;
+// Get icons from global lucide object
+const { CheckCircle2, Circle, Plus, X, Sparkles, TrendingUp, Calendar, Clock } = lucide;
 
 const ProjectScheduler = () => {
   const [projects, setProjects] = useState(() => {
