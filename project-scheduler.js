@@ -80,6 +80,25 @@ const Upload = ({ size = 24, className = "" }) => (
   </svg>
 );
 
+const Play = ({ size = 24, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+  </svg>
+);
+
+const Pause = ({ size = 24, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect x="6" y="4" width="4" height="16"></rect>
+    <rect x="14" y="4" width="4" height="16"></rect>
+  </svg>
+);
+
+const Square = ({ size = 24, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+  </svg>
+);
+
 const ProjectScheduler = () => {
   const [projects, setProjects] = useState(() => {
     const saved = localStorage.getItem('workcontrol-projects');
@@ -110,6 +129,17 @@ const ProjectScheduler = () => {
     return monday;
   });
 
+  // Timer state
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [currentTaskId, setCurrentTaskId] = useState(null);
+  const [currentProjectId, setCurrentProjectId] = useState(null);
+  const [timerStartTime, setTimerStartTime] = useState(null);
+  const [taskTimeLogs, setTaskTimeLogs] = useState(() => {
+    const saved = localStorage.getItem('workcontrol-time-logs');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   // Save projects to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem('workcontrol-projects', JSON.stringify(projects));
@@ -124,6 +154,24 @@ const ProjectScheduler = () => {
   useEffect(() => {
     localStorage.setItem('workcontrol-calendar-events', JSON.stringify(calendarEvents));
   }, [calendarEvents]);
+
+  // Save time logs to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('workcontrol-time-logs', JSON.stringify(taskTimeLogs));
+  }, [taskTimeLogs]);
+
+  // Timer tick effect
+  useEffect(() => {
+    let interval;
+    if (isTimerRunning) {
+      interval = setInterval(() => {
+        const now = Date.now();
+        const elapsed = Math.floor((now - timerStartTime) / 1000);
+        setElapsedTime(elapsed);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isTimerRunning, timerStartTime]);
 
   const weekDays = useMemo(() => {
     const days = [];
@@ -402,6 +450,67 @@ const ProjectScheduler = () => {
     });
 
     return tasks;
+  };
+
+  // Timer control functions
+  const startTimer = (projectId, taskId) => {
+    setIsTimerRunning(true);
+    setCurrentProjectId(projectId);
+    setCurrentTaskId(taskId);
+    setTimerStartTime(Date.now());
+    setElapsedTime(0);
+  };
+
+  const pauseTimer = () => {
+    if (isTimerRunning) {
+      setIsTimerRunning(false);
+      // Save the time log
+      const newLog = {
+        id: Date.now(),
+        projectId: currentProjectId,
+        taskId: currentTaskId,
+        seconds: elapsedTime,
+        timestamp: new Date().toISOString()
+      };
+      setTaskTimeLogs([...taskTimeLogs, newLog]);
+    }
+  };
+
+  const stopTimer = () => {
+    if (isTimerRunning || elapsedTime > 0) {
+      // Save the time log if there's elapsed time
+      if (elapsedTime > 0) {
+        const newLog = {
+          id: Date.now(),
+          projectId: currentProjectId,
+          taskId: currentTaskId,
+          seconds: elapsedTime,
+          timestamp: new Date().toISOString()
+        };
+        setTaskTimeLogs([...taskTimeLogs, newLog]);
+      }
+      // Reset timer
+      setIsTimerRunning(false);
+      setElapsedTime(0);
+      setCurrentTaskId(null);
+      setCurrentProjectId(null);
+      setTimerStartTime(null);
+    }
+  };
+
+  const formatTime = (seconds) => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const getTotalTimeForTask = (projectId, taskId) => {
+    const logs = taskTimeLogs.filter(log =>
+      log.projectId === projectId && log.taskId === taskId
+    );
+    const totalSeconds = logs.reduce((sum, log) => sum + log.seconds, 0);
+    return totalSeconds;
   };
 
   return (
@@ -727,14 +836,14 @@ const ProjectScheduler = () => {
                                   </div>
                                   
                                   <p className={`font-semibold ${
-                                    task.completed 
-                                      ? 'line-through opacity-60' 
+                                    task.completed
+                                      ? 'line-through opacity-60'
                                       : ''
                                   } ${isToday ? 'text-white' : 'text-gray-800'}`}>
                                     {task.name}
                                   </p>
-                                  
-                                  <div className={`flex items-center gap-3 mt-2 text-xs ${isToday ? 'text-white/70' : 'text-gray-600'}`}>
+
+                                  <div className={`flex items-center gap-2 mt-2 text-xs ${isToday ? 'text-white/70' : 'text-gray-600'} flex-wrap`}>
                                     <span className="bg-white/20 px-2 py-1 rounded-lg font-semibold">
                                       {task.hoursThisDay.toFixed(1)}h today
                                     </span>
@@ -743,8 +852,48 @@ const ProjectScheduler = () => {
                                         Split task: {task.totalTaskHours}h total
                                       </span>
                                     )}
+                                    {getTotalTimeForTask(task.projectId, task.id) > 0 && (
+                                      <span className="bg-green-500/20 text-green-700 px-2 py-1 rounded-lg font-semibold flex items-center gap-1">
+                                        <Clock size={12} />
+                                        {formatTime(getTotalTimeForTask(task.projectId, task.id))} worked
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
+
+                                {/* Timer Controls */}
+                                {!task.completed && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (isTimerRunning && currentTaskId === task.id && currentProjectId === task.projectId) {
+                                        pauseTimer();
+                                      } else if (elapsedTime > 0 && currentTaskId === task.id && currentProjectId === task.projectId) {
+                                        setIsTimerRunning(true);
+                                        setTimerStartTime(Date.now() - (elapsedTime * 1000));
+                                      } else {
+                                        if (isTimerRunning || elapsedTime > 0) {
+                                          stopTimer();
+                                        }
+                                        startTimer(task.projectId, task.id);
+                                      }
+                                    }}
+                                    className={`mt-2 p-2 rounded-lg transition-all duration-300 hover:scale-110 ${
+                                      isTimerRunning && currentTaskId === task.id && currentProjectId === task.projectId
+                                        ? 'bg-yellow-400 text-yellow-900 shadow-lg animate-pulse'
+                                        : isToday
+                                        ? 'bg-white/20 text-white hover:bg-white/30'
+                                        : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+                                    }`}
+                                    title={isTimerRunning && currentTaskId === task.id && currentProjectId === task.projectId ? "Timer running - click to pause" : "Start timer"}
+                                  >
+                                    {isTimerRunning && currentTaskId === task.id && currentProjectId === task.projectId ? (
+                                      <Pause size={16} />
+                                    ) : (
+                                      <Play size={16} />
+                                    )}
+                                  </button>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -799,6 +948,66 @@ const ProjectScheduler = () => {
           }}
           isGoogleConnected={isGoogleConnected}
         />
+      )}
+
+      {/* Floating Timer */}
+      {(isTimerRunning || elapsedTime > 0) && (
+        <div className="fixed bottom-8 right-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl shadow-2xl p-6 z-50 animate-slideUp border-4 border-white">
+          <div className="text-white">
+            <div className="flex items-center gap-2 mb-3">
+              <Clock size={20} className="text-white" />
+              <h3 className="font-bold text-lg">Timer Active</h3>
+            </div>
+
+            {currentTaskId && currentProjectId && (
+              <div className="mb-4">
+                <p className="text-white/80 text-sm mb-1">Current Task:</p>
+                <p className="font-semibold text-white">
+                  {projects.find(p => p.id === currentProjectId)?.tasks.find(t => t.id === currentTaskId)?.name || 'Task'}
+                </p>
+                <p className="text-white/60 text-xs mt-1">
+                  {projects.find(p => p.id === currentProjectId)?.name || 'Project'}
+                </p>
+              </div>
+            )}
+
+            <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4 mb-4">
+              <p className="text-4xl font-bold text-white text-center font-mono tracking-wider">
+                {formatTime(elapsedTime)}
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              {isTimerRunning ? (
+                <button
+                  onClick={pauseTimer}
+                  className="flex-1 bg-white text-indigo-600 px-4 py-3 rounded-xl font-bold hover:bg-gray-100 transition-all flex items-center justify-center gap-2"
+                >
+                  <Pause size={20} />
+                  Pause
+                </button>
+              ) : elapsedTime > 0 && (
+                <button
+                  onClick={() => {
+                    setIsTimerRunning(true);
+                    setTimerStartTime(Date.now() - (elapsedTime * 1000));
+                  }}
+                  className="flex-1 bg-white text-indigo-600 px-4 py-3 rounded-xl font-bold hover:bg-gray-100 transition-all flex items-center justify-center gap-2"
+                >
+                  <Play size={20} />
+                  Resume
+                </button>
+              )}
+              <button
+                onClick={stopTimer}
+                className="flex-1 bg-red-500 text-white px-4 py-3 rounded-xl font-bold hover:bg-red-600 transition-all flex items-center justify-center gap-2"
+              >
+                <Square size={20} />
+                Stop
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
