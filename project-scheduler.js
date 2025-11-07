@@ -750,7 +750,7 @@ const ProjectScheduler = () => {
             </div>
           </div>
         </div>
-        ) : viewMode === 'calendar' ? (
+        ) : (
           <CalendarView
             currentMonth={currentMonth}
             navigateMonth={navigateMonth}
