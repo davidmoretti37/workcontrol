@@ -90,14 +90,10 @@ const ProjectScheduler = () => {
     return saved ? JSON.parse(saved) : [];
   });
   const [showProjectForm, setShowProjectForm] = useState(false);
-  const [viewMode, setViewMode] = useState('schedule'); // 'schedule', 'calendar', or 'documents'
+  const [viewMode, setViewMode] = useState('schedule'); // 'schedule' or 'calendar'
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [calendarEvents, setCalendarEvents] = useState(() => {
     const saved = localStorage.getItem('workcontrol-calendar-events');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [documents, setDocuments] = useState(() => {
-    const saved = localStorage.getItem('workcontrol-documents');
     return saved ? JSON.parse(saved) : [];
   });
   const [googleCalendarEvents, setGoogleCalendarEvents] = useState([]);
@@ -128,11 +124,6 @@ const ProjectScheduler = () => {
   useEffect(() => {
     localStorage.setItem('workcontrol-calendar-events', JSON.stringify(calendarEvents));
   }, [calendarEvents]);
-
-  // Save documents to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('workcontrol-documents', JSON.stringify(documents));
-  }, [documents]);
 
   const weekDays = useMemo(() => {
     const days = [];
@@ -360,32 +351,7 @@ const ProjectScheduler = () => {
     }
   };
 
-  // Document Management Functions
-  const handleDocumentUpload = async (file) => {
-    const reader = new FileReader();
-
-    reader.onload = async (e) => {
-      const content = e.target.result;
-      const parsedTasks = parseDocumentContent(content, file.name);
-
-      const newDocument = {
-        id: Date.now(),
-        name: file.name,
-        content: content,
-        uploadedAt: new Date().toISOString(),
-        tasks: parsedTasks,
-        completed: false
-      };
-
-      setDocuments([...documents, newDocument]);
-
-      // Auto-schedule the document tasks
-      autoScheduleDocument(newDocument);
-    };
-
-    reader.readAsText(file);
-  };
-
+  // Document parsing helper for project creation
   const parseDocumentContent = (content, filename) => {
     // Parse document to extract tasks/steps
     const lines = content.split('\n').filter(line => line.trim());
@@ -431,80 +397,6 @@ const ProjectScheduler = () => {
     return tasks;
   };
 
-  const autoScheduleDocument = (document) => {
-    // Group tasks by week
-    const tasksByWeek = {};
-    document.tasks.forEach(task => {
-      const week = task.week || 1;
-      if (!tasksByWeek[week]) {
-        tasksByWeek[week] = [];
-      }
-      tasksByWeek[week].push(task);
-    });
-
-    // Schedule tasks across calendar
-    const startDate = new Date();
-    startDate.setHours(0, 0, 0, 0);
-
-    const newEvents = [];
-
-    Object.keys(tasksByWeek).sort((a, b) => a - b).forEach(week => {
-      const weekTasks = tasksByWeek[week];
-      const weekStartDate = new Date(startDate);
-      weekStartDate.setDate(startDate.getDate() + (week - 1) * 7);
-
-      let currentDate = new Date(weekStartDate);
-      let dailyHours = 0;
-
-      weekTasks.forEach(task => {
-        let remainingHours = task.hours;
-
-        while (remainingHours > 0) {
-          const availableHours = 10 - dailyHours;
-
-          if (availableHours <= 0) {
-            // Move to next day
-            currentDate.setDate(currentDate.getDate() + 1);
-            dailyHours = 0;
-            continue;
-          }
-
-          const hoursToSchedule = Math.min(remainingHours, availableHours);
-
-          newEvents.push({
-            id: Date.now() + Math.random(),
-            title: task.text,
-            description: `Week ${week} - ${document.name}`,
-            date: currentDate.toISOString(),
-            time: '09:00',
-            hours: hoursToSchedule,
-            documentId: document.id,
-            taskId: task.id,
-            createdAt: new Date()
-          });
-
-          dailyHours += hoursToSchedule;
-          remainingHours -= hoursToSchedule;
-
-          if (dailyHours >= 10) {
-            currentDate.setDate(currentDate.getDate() + 1);
-            dailyHours = 0;
-          }
-        }
-      });
-    });
-
-    setCalendarEvents([...calendarEvents, ...newEvents]);
-    alert(`Document analyzed! ${newEvents.length} tasks scheduled across ${Math.ceil(newEvents.length / 5)} weeks.`);
-  };
-
-  const deleteDocument = (docId) => {
-    // Remove document
-    setDocuments(documents.filter(d => d.id !== docId));
-    // Remove associated calendar events
-    setCalendarEvents(calendarEvents.filter(e => e.documentId !== docId));
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 p-8">
       <div className="max-w-7xl mx-auto">
@@ -546,17 +438,6 @@ const ProjectScheduler = () => {
               >
                 <Calendar className="inline mr-2" size={18} />
                 Calendar
-              </button>
-              <button
-                onClick={() => setViewMode('documents')}
-                className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${
-                  viewMode === 'documents'
-                    ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <FileText className="inline mr-2" size={18} />
-                Documents
               </button>
             </div>
           </div>
@@ -883,12 +764,6 @@ const ProjectScheduler = () => {
             onDeleteEvent={deleteCalendarEvent}
             onConnectGoogle={connectGoogleCalendar}
           />
-        ) : (
-          <DocumentsView
-            documents={documents}
-            onUpload={handleDocumentUpload}
-            onDelete={deleteDocument}
-          />
         )}
       </div>
 
@@ -897,6 +772,7 @@ const ProjectScheduler = () => {
         <ProjectForm
           onSave={addProject}
           onCancel={() => setShowProjectForm(false)}
+          parseDocumentContent={parseDocumentContent}
         />
       )}
 
@@ -921,12 +797,38 @@ const ProjectScheduler = () => {
   );
 };
 
-const ProjectForm = ({ onSave, onCancel }) => {
+const ProjectForm = ({ onSave, onCancel, parseDocumentContent }) => {
   const [projectName, setProjectName] = useState('');
   const [projectColor, setProjectColor] = useState('#6366f1');
   const [tasks, setTasks] = useState([]);
   const [taskName, setTaskName] = useState('');
   const [taskHours, setTaskHours] = useState('');
+  const fileInputRef = React.createRef();
+
+  const handleDocumentUpload = (file) => {
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      const content = e.target.result;
+      const parsedTasks = parseDocumentContent(content, file.name);
+
+      // Convert parsed tasks to project tasks format
+      const projectTasks = parsedTasks.map(task => ({
+        id: Date.now() + Math.random(),
+        name: task.text,
+        hours: task.hours,
+        completed: false,
+        week: task.week
+      }));
+
+      setTasks(projectTasks);
+      if (!projectName) {
+        setProjectName(file.name.replace(/\.[^/.]+$/, "")); // Remove file extension
+      }
+    };
+
+    reader.readAsText(file);
+  };
 
   const colors = [
     { color: '#6366f1', name: 'Indigo' },
@@ -1027,10 +929,36 @@ const ProjectForm = ({ onSave, onCancel }) => {
             </div>
           </div>
 
+          {/* Document Upload Option */}
+          <div className="mb-6">
+            <label className="block text-sm font-bold text-gray-700 mb-3">
+              Upload Project Document (Optional)
+            </label>
+            <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 hover:border-indigo-400 hover:bg-gray-50 transition-all cursor-pointer"
+                 onClick={() => fileInputRef.current?.click()}>
+              <div className="text-center">
+                <Upload className="mx-auto text-indigo-500 mb-2" size={32} />
+                <p className="text-sm text-gray-600 mb-1">
+                  Click to upload a document with your project steps
+                </p>
+                <p className="text-xs text-gray-500">
+                  Supports .txt, .md - automatically extracts tasks and time estimates
+                </p>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".txt,.md"
+                onChange={(e) => e.target.files[0] && handleDocumentUpload(e.target.files[0])}
+                className="hidden"
+              />
+            </div>
+          </div>
+
           {/* Add Tasks */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-gray-700 mb-3">
-              Break It Down Into Tasks
+              Break It Down Into Tasks {tasks.length > 0 && `(${tasks.length} from document)`}
             </label>
             <div className="flex gap-2 mb-4">
               <input
@@ -1392,181 +1320,6 @@ const EventForm = ({ selectedDate, onSave, onCancel, isGoogleConnected }) => {
             </button>
           </div>
         </div>
-      </div>
-    </div>
-  );
-};
-
-const DocumentsView = ({ documents, onUpload, onDelete }) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = React.createRef();
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      onUpload(files[0]);
-    }
-  };
-
-  const handleFileSelect = (e) => {
-    const files = e.target.files;
-    if (files.length > 0) {
-      onUpload(files[0]);
-    }
-  };
-
-  return (
-    <div className="bg-white/90 backdrop-blur-lg rounded-3xl shadow-2xl p-6 border border-white/20">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Project Documents</h2>
-
-      {/* Upload Area */}
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        className={`border-2 border-dashed rounded-2xl p-12 mb-8 transition-all cursor-pointer ${
-          isDragging
-            ? 'border-indigo-500 bg-indigo-50'
-            : 'border-gray-300 hover:border-indigo-400 hover:bg-gray-50'
-        }`}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <div className="text-center">
-          <Upload className="mx-auto text-indigo-500 mb-4" size={48} />
-          <h3 className="text-xl font-semibold text-gray-800 mb-2">
-            Upload Project Document
-          </h3>
-          <p className="text-gray-600 mb-4">
-            Drag and drop your project plan, or click to browse
-          </p>
-          <p className="text-sm text-gray-500">
-            Supports: .txt, .md, .doc, .docx, .pdf (text-based)
-          </p>
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".txt,.md,.doc,.docx,.pdf"
-          onChange={handleFileSelect}
-          className="hidden"
-        />
-      </div>
-
-      {/* Documents List */}
-      {documents.length === 0 ? (
-        <div className="text-center py-12">
-          <FileText className="mx-auto text-gray-400 mb-4" size={64} />
-          <p className="text-gray-500 mb-2">No documents uploaded yet</p>
-          <p className="text-sm text-gray-400">
-            Upload a document with your project steps to auto-schedule tasks
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {documents.map(doc => {
-            const completedTasks = doc.tasks.filter(t => t.completed).length;
-            const totalTasks = doc.tasks.length;
-            const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-
-            return (
-              <div
-                key={doc.id}
-                className="bg-gradient-to-r from-white to-gray-50 rounded-2xl p-6 border-2 border-gray-200 hover:shadow-lg transition-all"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="bg-gradient-to-br from-purple-500 to-pink-600 p-3 rounded-xl">
-                      <FileText className="text-white" size={24} />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-gray-800">{doc.name}</h3>
-                      <p className="text-sm text-gray-500">
-                        Uploaded {new Date(doc.uploadedAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => onDelete(doc.id)}
-                    className="text-gray-400 hover:text-red-500 transition-colors"
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
-
-                {/* Progress */}
-                <div className="mb-4">
-                  <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
-                    <span>{completedTasks}/{totalTasks} tasks completed</span>
-                    <span className="font-semibold">{Math.round(progress)}%</span>
-                  </div>
-                  <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-green-400 to-emerald-500 transition-all duration-500 rounded-full"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Task List Preview */}
-                <div className="space-y-2">
-                  <p className="text-sm font-semibold text-gray-700 mb-2">Tasks:</p>
-                  {doc.tasks.slice(0, 5).map((task, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-2 text-sm text-gray-600"
-                    >
-                      {task.completed ? (
-                        <CheckCircle2 size={16} className="text-green-500" />
-                      ) : (
-                        <Circle size={16} className="text-gray-300" />
-                      )}
-                      <span className={task.completed ? 'line-through' : ''}>
-                        Week {task.week || '?'}: {task.text.substring(0, 60)}
-                        {task.text.length > 60 && '...'}
-                      </span>
-                    </div>
-                  ))}
-                  {doc.tasks.length > 5 && (
-                    <p className="text-xs text-gray-500 pl-6">
-                      +{doc.tasks.length - 5} more tasks...
-                    </p>
-                  )}
-                </div>
-
-                {/* Info */}
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <p className="text-sm text-gray-600">
-                    📅 Scheduled across {Math.ceil(doc.tasks.reduce((sum, t) => sum + t.hours, 0) / 10)} days
-                    • ⏱️ {doc.tasks.reduce((sum, t) => sum + t.hours, 0)} total hours
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Instructions */}
-      <div className="mt-8 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-200">
-        <h4 className="font-semibold text-gray-800 mb-2">💡 Document Format Tips:</h4>
-        <ul className="text-sm text-gray-600 space-y-1">
-          <li>• Organize by weeks: "Week 1", "Week 2", etc.</li>
-          <li>• Use numbered lists or bullet points for tasks</li>
-          <li>• Start tasks with action verbs (create, build, implement)</li>
-          <li>• The app will automatically estimate hours and schedule tasks</li>
-        </ul>
       </div>
     </div>
   );
